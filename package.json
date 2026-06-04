@@ -4,8 +4,7 @@
   "description": "TypeScript SDK for the Phrony runtime (gRPC).",
   "license": "MIT",
   "publishConfig": {
-    "access": "public",
-    "provenance": true
+    "access": "public"
   },
   "repository": {
     "type": "git",
