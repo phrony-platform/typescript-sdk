@@ -55,6 +55,7 @@ import {
   type WorkClientMsg,
   type WorkServerMsg,
 } from "../gen/phrony/runtime/v1/runtime.js";
+import { InteractiveSession } from "../session/interactive-session.js";
 import { dialRuntime } from "./dial.js";
 import { callUnary } from "./unary.js";
 
@@ -192,14 +193,16 @@ export class RuntimeClient {
   runSessionInteractive(
     metadata?: Metadata,
     options?: Partial<CallOptions>,
-  ): ClientDuplexStream<RunSessionInteractiveClientMsg, RunSessionInteractiveServerMsg> {
+  ): InteractiveSession {
+    let stream: ClientDuplexStream<RunSessionInteractiveClientMsg, RunSessionInteractiveServerMsg>;
     if (metadata !== undefined) {
-      return this.grpc.runSessionInteractive(metadata, options);
+      stream = this.grpc.runSessionInteractive(metadata, options);
+    } else if (options !== undefined) {
+      stream = this.grpc.runSessionInteractive(options);
+    } else {
+      stream = this.grpc.runSessionInteractive();
     }
-    if (options !== undefined) {
-      return this.grpc.runSessionInteractive(options);
-    }
-    return this.grpc.runSessionInteractive();
+    return new InteractiveSession(stream);
   }
 
   /** Standard gRPC health client on the same runtime address. */

@@ -20,6 +20,16 @@ export type {
 } from "./client/index.js";
 
 export {
+  InteractiveSession,
+} from "./session/index.js";
+export type {
+  InteractiveEvent,
+  InteractiveSessionAttachOptions,
+  InteractiveSessionStartOptions,
+  InteractiveToolApprovalOptions,
+} from "./session/index.js";
+
+export {
   DEFAULT_MAX_CONCURRENCY,
   ToolError,
   Worker,

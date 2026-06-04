@@ -1,6 +1,8 @@
+import { EventEmitter } from "node:events";
 import { status as grpcStatus } from "@grpc/grpc-js";
 import { describe, expect, it, vi } from "vitest";
 import { RuntimeService } from "../gen/phrony/runtime/v1/runtime.js";
+import { InteractiveSession } from "../session/interactive-session.js";
 import { PhronyRuntimeError } from "./errors.js";
 import { RuntimeClient } from "./runtime-client.js";
 
@@ -34,7 +36,12 @@ function createMockGrpcClient() {
   return {
     ...unaryMocks,
     work: vi.fn(() => ({ kind: "work-stream" })),
-    runSessionInteractive: vi.fn(() => ({ kind: "interactive-stream" })),
+    runSessionInteractive: vi.fn(() =>
+      Object.assign(new EventEmitter(), {
+        write: vi.fn(),
+        end: vi.fn(),
+      }),
+    ),
     close: vi.fn(),
   };
 }
@@ -93,7 +100,8 @@ describe("RuntimeClient", () => {
     const client = createClientForTest(grpc, health);
 
     expect(client.work()).toEqual({ kind: "work-stream" });
-    expect(client.runSessionInteractive()).toEqual({ kind: "interactive-stream" });
+    const interactive = client.runSessionInteractive();
+    expect(interactive).toBeInstanceOf(InteractiveSession);
     expect(grpc.work).toHaveBeenCalledOnce();
     expect(grpc.runSessionInteractive).toHaveBeenCalledOnce();
   });
