@@ -249,13 +249,132 @@ describe("runWorkerSession", () => {
   });
 });
 
+describe("runWorkerSession deadlines", () => {
+  it("returns cancelled when the invoke deadline has already passed", async () => {
+    const stream = createMockDuplexStream();
+    const client = { work: () => stream, close: vi.fn() };
+    const handler = vi.fn(async (_args, ctx) => {
+      expect(ctx.signal.aborted).toBe(true);
+      return { ok: true };
+    });
+    const session = runWorkerSession(
+      client,
+      workerOptions,
+      createHandlers([{ tool: "slow", version: "v1", handler }]),
+    );
+
+    await Promise.resolve();
+    stream.emitData({ registered: { workerId: "test-worker", leaseTtlMs: 30_000 } });
+    stream.emitData({
+      invoke: {
+        callId: "expired",
+        sessionId: "s",
+        agentVersionId: "av",
+        turn: 0,
+        tool: "slow",
+        version: "v1",
+        args: Buffer.from("{}"),
+        sideEffectClass: "read_only",
+        deadlineUnixMs: Date.now() - 1,
+      },
+    });
+
+    await vi.waitFor(() => {
+      expect(
+        stream.written.find((msg) => msg.result?.callId === "expired")?.result?.error,
+      ).toMatchObject({ code: "cancelled" });
+    });
+    expect(handler).toHaveBeenCalledOnce();
+
+    await session.close();
+    await session.done;
+  });
+
+  it("maps unexpected handler failures to internal errors", async () => {
+    const stream = createMockDuplexStream();
+    const client = { work: () => stream, close: vi.fn() };
+    const session = runWorkerSession(
+      client,
+      workerOptions,
+      createHandlers([
+        {
+          tool: "boom",
+          version: "v1",
+          handler: async () => {
+            throw new Error("unexpected");
+          },
+        },
+      ]),
+    );
+
+    await Promise.resolve();
+    stream.emitData({ registered: { workerId: "test-worker", leaseTtlMs: 30_000 } });
+    stream.emitData({
+      invoke: {
+        callId: "boom-1",
+        sessionId: "s",
+        agentVersionId: "av",
+        turn: 0,
+        tool: "boom",
+        version: "v1",
+        args: Buffer.from("{}"),
+        sideEffectClass: "read_only",
+        deadlineUnixMs: 0,
+      },
+    });
+
+    await vi.waitFor(() => {
+      expect(
+        stream.written.find((msg) => msg.result?.callId === "boom-1")?.result?.error,
+      ).toMatchObject({
+        code: "internal",
+        message: "unexpected",
+      });
+    });
+
+    await session.close();
+    await session.done;
+  });
+});
+
 describe("Worker", () => {
-  it("rejects duplicate registration and post-connect registration", async () => {
+  it("rejects duplicate registration", async () => {
     const { Worker } = await import("./worker.js");
     const worker = new Worker({ runtimeAddr: "127.0.0.1:7777", workerId: "w" });
     worker.registerTool({ tool: "t", version: "v1", handler: async () => ({}) });
     expect(() => worker.registerTool({ tool: "t", version: "v1", handler: async () => ({}) })).toThrow(
       /already registered/,
     );
+  });
+
+  it("rejects registration after connect and connect without handlers", async () => {
+    const { Worker } = await import("./worker.js");
+    const { RuntimeClient } = await import("../client/runtime-client.js");
+
+    const stream = createMockDuplexStream();
+    const mockClient = {
+      work: () => stream,
+      close: vi.fn(),
+    };
+    vi.spyOn(RuntimeClient, "connect").mockResolvedValue(mockClient as never);
+
+    const worker = new Worker({ runtimeAddr: "127.0.0.1:7777", workerId: "w" });
+    worker.registerTool({ tool: "t", version: "v1", handler: async () => ({}) });
+
+    const connectPromise = worker.connect();
+    await Promise.resolve();
+    stream.emitData({ registered: { workerId: "w", leaseTtlMs: 30_000 } });
+
+    expect(() => worker.registerTool({ tool: "other", version: "v1", handler: async () => ({}) })).toThrow(
+      /after connect/,
+    );
+
+    await worker.close();
+    await connectPromise;
+
+    const empty = new Worker({ runtimeAddr: "127.0.0.1:7777", workerId: "empty" });
+    await expect(empty.connect()).rejects.toThrow(/register at least one tool/);
+
+    vi.restoreAllMocks();
   });
 });

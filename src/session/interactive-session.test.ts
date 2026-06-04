@@ -239,4 +239,58 @@ describe("InteractiveSession", () => {
     expect(stream.end).toHaveBeenCalled();
     expect(() => session.sendUserMessage("late")).toThrow(/closed/);
   });
+
+  it("maps awaiting_input, failed, cancelled, and tool_result events", async () => {
+    const stream = createMockDuplexStream();
+    const session = new InteractiveSession(stream);
+    const eventsPromise = collectEvents(session, 6);
+
+    stream.emitData({
+      awaitingInput: {
+        stopReason: "tool_calls",
+        stats: { totalTokens: 10, promptTokens: 5, completionTokens: 5 },
+        inputBlockedReason: "",
+      },
+    });
+    stream.emitData({ failed: { message: "quota exceeded" } });
+    stream.emitData({
+      toolResult: {
+        callId: "c1",
+        payload: jsonBytes({ temp_c: 12 }),
+        errorMessage: "",
+      },
+    });
+    stream.emitData({ cancelled: { sessionEndedAtUnixMs: 42 } });
+    stream.emitEnd();
+
+    const events = await eventsPromise;
+    expect(events).toEqual([
+      {
+        type: "awaiting_input",
+        stopReason: "tool_calls",
+        stats: { totalTokens: 10, promptTokens: 5, completionTokens: 5 },
+        inputBlockedReason: "",
+      },
+      { type: "failed", message: "quota exceeded" },
+      {
+        type: "tool_result",
+        callId: "c1",
+        payload: { temp_c: 12 },
+        errorMessage: "",
+      },
+      { type: "cancelled", sessionEndedAtUnixMs: 42 },
+      { type: "stream_end" },
+    ]);
+  });
+
+  it("surfaces stream errors to event consumers", async () => {
+    const stream = createMockDuplexStream();
+    const session = new InteractiveSession(stream);
+    const events = session.events();
+
+    const next = events[Symbol.asyncIterator]().next();
+    stream.emitError(new Error("connection reset"));
+
+    await expect(next).rejects.toThrow(/connection reset/);
+  });
 });

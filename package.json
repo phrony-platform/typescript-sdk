@@ -33,6 +33,7 @@
     "proto": "node scripts/generate-proto.mjs",
     "build": "tsc -p tsconfig.build.json",
     "test": "vitest run",
+    "test:integration": "PHRONY_INTEGRATION=1 vitest run src/integration",
     "test:watch": "vitest",
     "lint:types": "tsc -p tsconfig.build.json --noEmit"
   },
