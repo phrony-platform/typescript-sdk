@@ -1,0 +1,59 @@
+{
+  "name": "@phrony/sdk",
+  "version": "0.0.0",
+  "description": "TypeScript SDK for the Phrony runtime (gRPC).",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist"
+  ],
+  "keywords": [
+    "phrony",
+    "phrony-sdk",
+    "runtime",
+    "grpc",
+    "typescript",
+    "agents",
+    "tools"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./worker": {
+      "types": "./dist/worker/index.d.ts",
+      "import": "./dist/worker/index.js"
+    }
+  },
+  "scripts": {
+    "proto": "node scripts/generate-proto.mjs",
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint:types": "tsc -p tsconfig.build.json --noEmit"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.11.0",
+    "@grpc/grpc-js": "^1.12.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.0",
+    "ts-proto": "^2.7.5",
+    "typescript": "^5.7.2",
+    "vitest": "^3.0.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "protobufjs"
+    ]
+  },
+  "packageManager": "pnpm@11.1.2"
+}

@@ -1,0 +1,12 @@
+version: v2
+inputs:
+  - directory: ../runtime/proto
+plugins:
+  - local: ./node_modules/ts-proto/protoc-gen-ts_proto
+    out: src/gen
+    strategy: all
+    opt:
+      - outputServices=grpc-js
+      - env=node
+      - esModuleInterop=true
+      - useOptionals=messages
