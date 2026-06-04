@@ -2,6 +2,23 @@
 export const SDK_VERSION = "0.0.0";
 
 export {
+  AgentRefParseError,
+  formatAgentRef,
+  parseAgentRef,
+} from "./agent-ref.js";
+
+export {
+  AgentSessionError,
+  Phrony,
+  PhronyAgent,
+} from "./phrony.js";
+export type {
+  AgentRunOptions,
+  AgentRunResult,
+  PhronyOptions,
+} from "./phrony.js";
+
+export {
   DEFAULT_RUNTIME_ADDR,
   PhronyRuntimeError,
   RuntimeClient,
