@@ -20,6 +20,20 @@ export type {
 } from "./client/index.js";
 
 export {
+  DEFAULT_MAX_CONCURRENCY,
+  ToolError,
+  Worker,
+  handlerKey,
+  heartbeatIntervalMs,
+} from "./worker/index.js";
+export type {
+  RegisterToolOptions,
+  ToolHandler,
+  ToolHandlerContext,
+  WorkerOptions,
+} from "./worker/index.js";
+
+export {
   ApprovalDecision,
   type AgentRef,
   type Approval,
