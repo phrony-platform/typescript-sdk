@@ -74,7 +74,7 @@ describe("InteractiveSession", () => {
           agentRef: { namespace: "default", name: "agent", version: "" },
           input: jsonBytes({ claimId: "CLM-1" }),
           sessionId: "",
-          resolvedSecrets: { apiKey: jsonBytes("secret") },
+          resolvedSecrets: { apiKey: Buffer.from("secret", "utf8") },
         },
       },
     ]);

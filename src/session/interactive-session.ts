@@ -1,5 +1,5 @@
 import type { ClientDuplexStream } from "@grpc/grpc-js";
-import { jsonBytes, jsonBytesMap, parseJsonBytes } from "../client/json-bytes.js";
+import { jsonBytes, parseJsonBytes, resolvedSecretsMap } from "../client/json-bytes.js";
 import { wrapRpcError } from "../client/errors.js";
 import type {
   RunSessionInteractiveClientMsg,
@@ -41,7 +41,7 @@ export class InteractiveSession {
       agentRef: options.agentRef,
       input: jsonBytes(options.input),
       sessionId: "",
-      resolvedSecrets: jsonBytesMap(options.resolvedSecrets ?? {}),
+      resolvedSecrets: resolvedSecretsMap(options.resolvedSecrets ?? {}),
     };
     this.sendStart(start);
   }

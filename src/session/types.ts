@@ -11,8 +11,8 @@ export type InteractiveSessionStartOptions = {
   agentRef: AgentRef;
   /** JSON-serializable session input (encoded as proto `input` bytes). */
   input: unknown;
-  /** Resolved secret values keyed by secret name (encoded as proto `bytes` entries). */
-  resolvedSecrets?: Record<string, unknown>;
+  /** Resolved secret values keyed by secret name (raw UTF-8, same as `phrony run`). */
+  resolvedSecrets?: Record<string, string>;
 };
 
 export type InteractiveSessionAttachOptions = {

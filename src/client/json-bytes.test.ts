@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { jsonBytes, jsonBytesMap, parseJsonBytes } from "./json-bytes.js";
+import { jsonBytes, jsonBytesMap, parseJsonBytes, resolvedSecretsMap } from "./json-bytes.js";
 
 describe("json-bytes helpers", () => {
   it("round-trips JSON objects", () => {
@@ -7,9 +7,15 @@ describe("json-bytes helpers", () => {
     expect(parseJsonBytes<typeof payload>(jsonBytes(payload))).toEqual(payload);
   });
 
-  it("encodes secret maps", () => {
-    const secrets = jsonBytesMap({ "secrets.api_key": "abc123" });
-    expect(parseJsonBytes<string>(secrets["secrets.api_key"]!)).toBe("abc123");
+  it("encodes JSON maps for non-secret payloads", () => {
+    const payload = jsonBytesMap({ nested: { ok: true } });
+    expect(parseJsonBytes(payload.nested!)).toEqual({ ok: true });
+  });
+
+  it("encodes resolved secrets as raw UTF-8 (no JSON quotes)", () => {
+    const secrets = resolvedSecretsMap({ openai: "sk-test" });
+    expect(secrets.openai!.toString("utf8")).toBe("sk-test");
+    expect(secrets.openai!.toString("utf8")).not.toMatch(/^"/);
   });
 
   it("rejects empty bytes", () => {

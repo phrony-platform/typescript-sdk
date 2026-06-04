@@ -1,6 +1,6 @@
 import type { ChannelCredentials } from "@grpc/grpc-js";
 import { parseAgentRef } from "./agent-ref.js";
-import { jsonBytes, jsonBytesMap } from "./client/json-bytes.js";
+import { jsonBytes, resolvedSecretsMap } from "./client/json-bytes.js";
 import { RuntimeClient } from "./client/runtime-client.js";
 import type { AgentRef, InteractiveSessionStats } from "./gen/phrony/runtime/v1/runtime.js";
 import { InteractiveSession } from "./session/interactive-session.js";
@@ -15,8 +15,8 @@ export type PhronyOptions = {
 export type AgentRunOptions = {
   /** JSON-serializable session input. */
   input?: unknown;
-  /** Resolved secret values keyed by manifest secret name. */
-  resolvedSecrets?: Record<string, unknown>;
+  /** Resolved secret values keyed by manifest secret name (raw strings, not JSON). */
+  resolvedSecrets?: Record<string, string>;
   /**
    * Agent version (alternative to `namespace/name@version` on {@link Phrony.agent}).
    * When set, overrides the version from the agent reference string.
@@ -117,7 +117,7 @@ export class PhronyAgent {
       const response = await client.runSession({
         agentRef,
         input: encodeInput(options.input),
-        resolvedSecrets: jsonBytesMap(options.resolvedSecrets ?? {}),
+        resolvedSecrets: resolvedSecretsMap(options.resolvedSecrets ?? {}),
       });
       return {
         sessionId: response.sessionId,

@@ -26,6 +26,7 @@ export {
   jsonBytes,
   jsonBytesMap,
   parseJsonBytes,
+  resolvedSecretsMap,
   resolveRuntimeAddr,
   wrapRpcError,
 } from "./client/index.js";

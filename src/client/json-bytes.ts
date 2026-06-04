@@ -20,3 +20,17 @@ export function jsonBytesMap(values: Record<string, unknown>): Record<string, Bu
   }
   return out;
 }
+
+/**
+ * Encode resolved manifest secrets as raw UTF-8 bytes (matches `phrony run` / fromEnv).
+ * Do not use {@link jsonBytesMap} for API keys — JSON quoting breaks provider auth.
+ */
+export function resolvedSecretsMap(
+  values: Record<string, string | Uint8Array>,
+): Record<string, Buffer> {
+  const out: Record<string, Buffer> = {};
+  for (const [key, value] of Object.entries(values)) {
+    out[key] = typeof value === "string" ? Buffer.from(value, "utf8") : Buffer.from(value);
+  }
+  return out;
+}
