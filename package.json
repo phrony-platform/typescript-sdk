@@ -1,6 +1,6 @@
 {
   "name": "@phrony/sdk",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "TypeScript SDK for the Phrony runtime (gRPC).",
   "license": "MIT",
   "publishConfig": {
@@ -8,7 +8,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/phrony-platform/typescript-idk.git"
+    "url": "git+https://github.com/phrony-platform/typescript-sdk.git"
   },
   "type": "module",
   "sideEffects": false,
