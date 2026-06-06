@@ -27,6 +27,7 @@ const UNARY_METHODS = [
   "listBundleVersions",
   "listBundleDeployments",
   "listSessions",
+  "inspectSession",
   "getApproval",
   "listApprovals",
   "decideApproval",
@@ -65,7 +66,7 @@ function createClientForTest(
 
 describe("RuntimeClient", () => {
   it("exposes all generated unary RPCs", () => {
-    expect(Object.keys(RuntimeService)).toHaveLength(28);
+    expect(Object.keys(RuntimeService)).toHaveLength(29);
     for (const method of UNARY_METHODS) {
       expect(RuntimeService[method]).toBeDefined();
       expect(typeof RuntimeClient.prototype[method]).toBe("function");

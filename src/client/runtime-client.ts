@@ -38,6 +38,8 @@ import {
   type GetApprovalRequest,
   type GetVersionRequest,
   type GetVersionResponse,
+  type InspectSessionRequest,
+  type InspectSessionResponse,
   type ListAgentVersionsRequest,
   type ListAgentVersionsResponse,
   type ListAgentsRequest,
@@ -189,6 +191,10 @@ export class RuntimeClient {
 
   listSessions(request: ListSessionsRequest): Promise<ListSessionsResponse> {
     return callUnary("list sessions", this.grpc.listSessions.bind(this.grpc), request);
+  }
+
+  inspectSession(request: InspectSessionRequest): Promise<InspectSessionResponse> {
+    return callUnary("inspect session", this.grpc.inspectSession.bind(this.grpc), request);
   }
 
   getApproval(request: GetApprovalRequest): Promise<Approval> {
