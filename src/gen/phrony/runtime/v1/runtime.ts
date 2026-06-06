@@ -599,6 +599,14 @@ export interface ListSessionsRequest {
     | undefined;
   /** Optional filter; empty means all statuses. */
   status: string;
+  /** When false (default), delegated child sessions (parent_session_id set) are omitted. */
+  includeChildren: boolean;
+  /** Filter sessions to one bundle's runs. Mutually exclusive with agent_ref. */
+  bundleRef?:
+    | BundleRef
+    | undefined;
+  /** Filter by session kind: empty (all), "agent" (no bundle_version_id), or "bundle". */
+  kind: string;
 }
 
 export interface SessionSummary {
@@ -608,6 +616,10 @@ export interface SessionSummary {
   /** RFC3339 */
   createdAt: string;
   updatedAt: string;
+  /** "bundle" when the session was started from a deployed bundle, else "agent". */
+  kind: string;
+  /** Set when the session originated from a bundle run; empty otherwise. */
+  bundleVersionId: string;
 }
 
 export interface ListSessionsResponse {
@@ -8505,7 +8517,7 @@ export const ListAgentVersionsResponse: MessageFns<ListAgentVersionsResponse> = 
 };
 
 function createBaseListSessionsRequest(): ListSessionsRequest {
-  return { agentRef: undefined, status: "" };
+  return { agentRef: undefined, status: "", includeChildren: false, bundleRef: undefined, kind: "" };
 }
 
 export const ListSessionsRequest: MessageFns<ListSessionsRequest> = {
@@ -8515,6 +8527,15 @@ export const ListSessionsRequest: MessageFns<ListSessionsRequest> = {
     }
     if (message.status !== "") {
       writer.uint32(18).string(message.status);
+    }
+    if (message.includeChildren !== false) {
+      writer.uint32(24).bool(message.includeChildren);
+    }
+    if (message.bundleRef !== undefined) {
+      BundleRef.encode(message.bundleRef, writer.uint32(34).fork()).join();
+    }
+    if (message.kind !== "") {
+      writer.uint32(42).string(message.kind);
     }
     return writer;
   },
@@ -8542,6 +8563,30 @@ export const ListSessionsRequest: MessageFns<ListSessionsRequest> = {
           message.status = reader.string();
           continue;
         }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.includeChildren = reader.bool();
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.bundleRef = BundleRef.decode(reader, reader.uint32());
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.kind = reader.string();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -8559,6 +8604,17 @@ export const ListSessionsRequest: MessageFns<ListSessionsRequest> = {
         ? AgentRef.fromJSON(object.agent_ref)
         : undefined,
       status: isSet(object.status) ? globalThis.String(object.status) : "",
+      includeChildren: isSet(object.includeChildren)
+        ? globalThis.Boolean(object.includeChildren)
+        : isSet(object.include_children)
+        ? globalThis.Boolean(object.include_children)
+        : false,
+      bundleRef: isSet(object.bundleRef)
+        ? BundleRef.fromJSON(object.bundleRef)
+        : isSet(object.bundle_ref)
+        ? BundleRef.fromJSON(object.bundle_ref)
+        : undefined,
+      kind: isSet(object.kind) ? globalThis.String(object.kind) : "",
     };
   },
 
@@ -8569,6 +8625,15 @@ export const ListSessionsRequest: MessageFns<ListSessionsRequest> = {
     }
     if (message.status !== "") {
       obj.status = message.status;
+    }
+    if (message.includeChildren !== false) {
+      obj.includeChildren = message.includeChildren;
+    }
+    if (message.bundleRef !== undefined) {
+      obj.bundleRef = BundleRef.toJSON(message.bundleRef);
+    }
+    if (message.kind !== "") {
+      obj.kind = message.kind;
     }
     return obj;
   },
@@ -8582,12 +8647,17 @@ export const ListSessionsRequest: MessageFns<ListSessionsRequest> = {
       ? AgentRef.fromPartial(object.agentRef)
       : undefined;
     message.status = object.status ?? "";
+    message.includeChildren = object.includeChildren ?? false;
+    message.bundleRef = (object.bundleRef !== undefined && object.bundleRef !== null)
+      ? BundleRef.fromPartial(object.bundleRef)
+      : undefined;
+    message.kind = object.kind ?? "";
     return message;
   },
 };
 
 function createBaseSessionSummary(): SessionSummary {
-  return { id: "", agentVersionId: "", status: "", createdAt: "", updatedAt: "" };
+  return { id: "", agentVersionId: "", status: "", createdAt: "", updatedAt: "", kind: "", bundleVersionId: "" };
 }
 
 export const SessionSummary: MessageFns<SessionSummary> = {
@@ -8606,6 +8676,12 @@ export const SessionSummary: MessageFns<SessionSummary> = {
     }
     if (message.updatedAt !== "") {
       writer.uint32(42).string(message.updatedAt);
+    }
+    if (message.kind !== "") {
+      writer.uint32(50).string(message.kind);
+    }
+    if (message.bundleVersionId !== "") {
+      writer.uint32(58).string(message.bundleVersionId);
     }
     return writer;
   },
@@ -8657,6 +8733,22 @@ export const SessionSummary: MessageFns<SessionSummary> = {
           message.updatedAt = reader.string();
           continue;
         }
+        case 6: {
+          if (tag !== 50) {
+            break;
+          }
+
+          message.kind = reader.string();
+          continue;
+        }
+        case 7: {
+          if (tag !== 58) {
+            break;
+          }
+
+          message.bundleVersionId = reader.string();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -8685,6 +8777,12 @@ export const SessionSummary: MessageFns<SessionSummary> = {
         : isSet(object.updated_at)
         ? globalThis.String(object.updated_at)
         : "",
+      kind: isSet(object.kind) ? globalThis.String(object.kind) : "",
+      bundleVersionId: isSet(object.bundleVersionId)
+        ? globalThis.String(object.bundleVersionId)
+        : isSet(object.bundle_version_id)
+        ? globalThis.String(object.bundle_version_id)
+        : "",
     };
   },
 
@@ -8705,6 +8803,12 @@ export const SessionSummary: MessageFns<SessionSummary> = {
     if (message.updatedAt !== "") {
       obj.updatedAt = message.updatedAt;
     }
+    if (message.kind !== "") {
+      obj.kind = message.kind;
+    }
+    if (message.bundleVersionId !== "") {
+      obj.bundleVersionId = message.bundleVersionId;
+    }
     return obj;
   },
 
@@ -8718,6 +8822,8 @@ export const SessionSummary: MessageFns<SessionSummary> = {
     message.status = object.status ?? "";
     message.createdAt = object.createdAt ?? "";
     message.updatedAt = object.updatedAt ?? "";
+    message.kind = object.kind ?? "";
+    message.bundleVersionId = object.bundleVersionId ?? "";
     return message;
   },
 };
