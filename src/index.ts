@@ -8,9 +8,17 @@ export {
 } from "./agent-ref.js";
 
 export {
+  BundleRefParseError,
+  formatBundleRef,
+  parseBundleRef,
+  parseBundleRefVersionRequired,
+} from "./bundle-ref.js";
+
+export {
   AgentSessionError,
   Phrony,
   PhronyAgent,
+  PhronyBundle,
 } from "./phrony.js";
 export type {
   AgentRunOptions,
@@ -65,9 +73,25 @@ export {
   ApprovalDecision,
   type AgentRef,
   type Approval,
+  type BundleMemberPackage,
+  type BundleRef,
+  type BundleSummary,
+  type BundleVersionSummary,
+  type DeployBundleRequest,
+  type DeployBundleResponse,
   type DeployRequest,
   type DeployResponse,
+  type GetActiveBundleRequest,
+  type GetActiveBundleResponse,
   type GetVersionResponse,
+  type ListBundleDeploymentsRequest,
+  type ListBundleDeploymentsResponse,
+  type ListBundlesRequest,
+  type ListBundlesResponse,
+  type ListBundleVersionsRequest,
+  type ListBundleVersionsResponse,
+  type PublishBundleRequest,
+  type PublishBundleResponse,
   type PublishRequest,
   type PublishResponse,
   type RunSessionRequest,

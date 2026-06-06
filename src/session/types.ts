@@ -1,5 +1,6 @@
 import type {
   AgentRef,
+  BundleRef,
   InteractiveConversationMessage,
   InteractiveSessionStats,
   RunSessionInteractiveApprovalRequired,
@@ -7,13 +8,16 @@ import type {
   TokenUsage,
 } from "../gen/phrony/runtime/v1/runtime.js";
 
-export type InteractiveSessionStartOptions = {
-  agentRef: AgentRef;
+type InteractiveSessionStartCommon = {
   /** JSON-serializable session input (encoded as proto `input` bytes). */
   input: unknown;
   /** Resolved secret values keyed by secret name (raw UTF-8, same as `phrony run`). */
   resolvedSecrets?: Record<string, string>;
 };
+
+export type InteractiveSessionStartOptions =
+  | (InteractiveSessionStartCommon & { agentRef: AgentRef; bundleRef?: never })
+  | (InteractiveSessionStartCommon & { bundleRef: BundleRef; agentRef?: never });
 
 export type InteractiveSessionAttachOptions = {
   sessionId: string;
@@ -71,4 +75,4 @@ export type InteractiveEvent =
     }
   | { type: "stream_end" };
 
-export type { AgentRef, InteractiveConversationMessage, InteractiveSessionStats, TokenUsage };
+export type { AgentRef, BundleRef, InteractiveConversationMessage, InteractiveSessionStats, TokenUsage };

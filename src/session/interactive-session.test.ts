@@ -58,6 +58,29 @@ async function collectEvents(
 }
 
 describe("InteractiveSession", () => {
+  it("start sends bundle ref, input, and resolved secrets", () => {
+    const stream = createMockDuplexStream();
+    const session = new InteractiveSession(stream);
+
+    session.start({
+      bundleRef: { namespace: "demo", name: "payment-desk", version: "" },
+      input: { amount: 500 },
+      resolvedSecrets: { apiKey: "secret" },
+    });
+
+    expect(stream.written).toEqual([
+      {
+        start: {
+          agentRef: undefined,
+          bundleRef: { namespace: "demo", name: "payment-desk", version: "" },
+          input: jsonBytes({ amount: 500 }),
+          sessionId: "",
+          resolvedSecrets: { apiKey: Buffer.from("secret", "utf8") },
+        },
+      },
+    ]);
+  });
+
   it("start sends agent ref, input, and resolved secrets", () => {
     const stream = createMockDuplexStream();
     const session = new InteractiveSession(stream);

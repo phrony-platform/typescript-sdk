@@ -11,20 +11,26 @@ import {
   GetVersionRequest as GetVersionRequestMsg,
   ListAgentsRequest as ListAgentsRequestMsg,
   ListApprovalsRequest as ListApprovalsRequestMsg,
+  ListBundlesRequest as ListBundlesRequestMsg,
   type AgentRef,
   type Approval,
   type ArchiveAgentRequest,
   type ArchiveAgentResponse,
+  type BundleRef,
   type CancelSessionRequest,
   type CancelSessionResponse,
   type CompleteSessionRequest,
   type CompleteSessionResponse,
   type DecideApprovalRequest,
   type DecideApprovalResponse,
+  type DeployBundleRequest,
+  type DeployBundleResponse,
   type DeployRequest,
   type DeployResponse,
   type DeprecateAgentVersionRequest,
   type DeprecateAgentVersionResponse,
+  type GetActiveBundleRequest,
+  type GetActiveBundleResponse,
   type GetActiveVersionRequest,
   type GetActiveVersionResponse,
   type GetAgentVersionRequest,
@@ -38,10 +44,18 @@ import {
   type ListAgentsResponse,
   type ListApprovalsRequest,
   type ListApprovalsResponse,
+  type ListBundleDeploymentsRequest,
+  type ListBundleDeploymentsResponse,
+  type ListBundlesRequest,
+  type ListBundlesResponse,
+  type ListBundleVersionsRequest,
+  type ListBundleVersionsResponse,
   type ListDeploymentsRequest,
   type ListDeploymentsResponse,
   type ListSessionsRequest,
   type ListSessionsResponse,
+  type PublishBundleRequest,
+  type PublishBundleResponse,
   type PublishRequest,
   type PublishResponse,
   type RetireAgentVersionRequest,
@@ -59,7 +73,7 @@ import { InteractiveSession } from "../session/interactive-session.js";
 import { dialRuntime } from "./dial.js";
 import { callUnary } from "./unary.js";
 
-export type { AgentRef };
+export type { AgentRef, BundleRef };
 
 export type RuntimeClientOptions = {
   /** @default process.env.PHRONY_RUNTIME_ADDR ?? "127.0.0.1:7777" */
@@ -103,8 +117,16 @@ export class RuntimeClient {
     return callUnary("publish agent", this.grpc.publish.bind(this.grpc), request);
   }
 
+  publishBundle(request: PublishBundleRequest): Promise<PublishBundleResponse> {
+    return callUnary("publish bundle", this.grpc.publishBundle.bind(this.grpc), request);
+  }
+
   deploy(request: DeployRequest): Promise<DeployResponse> {
     return callUnary("deploy agent", this.grpc.deploy.bind(this.grpc), request);
+  }
+
+  deployBundle(request: DeployBundleRequest): Promise<DeployBundleResponse> {
+    return callUnary("deploy bundle", this.grpc.deployBundle.bind(this.grpc), request);
   }
 
   rollback(request: RollbackRequest): Promise<RollbackResponse> {
@@ -113,6 +135,10 @@ export class RuntimeClient {
 
   getActiveVersion(request: GetActiveVersionRequest): Promise<GetActiveVersionResponse> {
     return callUnary("get active version", this.grpc.getActiveVersion.bind(this.grpc), request);
+  }
+
+  getActiveBundle(request: GetActiveBundleRequest): Promise<GetActiveBundleResponse> {
+    return callUnary("get active bundle", this.grpc.getActiveBundle.bind(this.grpc), request);
   }
 
   listDeployments(request: ListDeploymentsRequest): Promise<ListDeploymentsResponse> {
@@ -139,8 +165,26 @@ export class RuntimeClient {
     return callUnary("list agents", this.grpc.listAgents.bind(this.grpc), request);
   }
 
+  listBundles(request: ListBundlesRequest = ListBundlesRequestMsg.create()): Promise<ListBundlesResponse> {
+    return callUnary("list bundles", this.grpc.listBundles.bind(this.grpc), request);
+  }
+
   listAgentVersions(request: ListAgentVersionsRequest): Promise<ListAgentVersionsResponse> {
     return callUnary("list agent versions", this.grpc.listAgentVersions.bind(this.grpc), request);
+  }
+
+  listBundleVersions(request: ListBundleVersionsRequest): Promise<ListBundleVersionsResponse> {
+    return callUnary("list bundle versions", this.grpc.listBundleVersions.bind(this.grpc), request);
+  }
+
+  listBundleDeployments(
+    request: ListBundleDeploymentsRequest,
+  ): Promise<ListBundleDeploymentsResponse> {
+    return callUnary(
+      "list bundle deployments",
+      this.grpc.listBundleDeployments.bind(this.grpc),
+      request,
+    );
   }
 
   listSessions(request: ListSessionsRequest): Promise<ListSessionsResponse> {

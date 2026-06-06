@@ -5,7 +5,7 @@ import { RuntimeClient, RuntimeService } from "./gen/phrony/runtime/v1/runtime.j
 describe("generated gRPC stubs", () => {
   it("exports RuntimeClient with all Runtime RPCs", () => {
     expect(RuntimeClient.service).toBe(RuntimeService);
-    expect(Object.keys(RuntimeService)).toHaveLength(21);
+    expect(Object.keys(RuntimeService)).toHaveLength(28);
     expect(RuntimeService.getVersion.path).toBe("/phrony.runtime.v1.Runtime/GetVersion");
     expect(RuntimeService.work.requestStream).toBe(true);
     expect(RuntimeService.runSessionInteractive.responseStream).toBe(true);

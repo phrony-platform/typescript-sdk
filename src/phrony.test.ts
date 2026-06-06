@@ -187,6 +187,90 @@ describe("Phrony", () => {
     });
   });
 
+  it("bundle().run() waits for completed output on the interactive stream", async () => {
+    const stream = createMockInteractiveStream();
+    const phrony = new Phrony({ runtimeAddr: "127.0.0.1:7777" });
+    const client = mockRuntimeClient({ interactiveStream: stream });
+    vi.spyOn(phrony, "ensureClient").mockResolvedValue(client);
+
+    const runPromise = phrony.bundle("demo/payment-desk").run({
+      input: { message: "Pay 500 USD to Acme" },
+    });
+
+    await Promise.resolve();
+
+    expect(stream.written[0]?.start?.bundleRef).toEqual({
+      namespace: "demo",
+      name: "payment-desk",
+      version: "",
+    });
+    expect(stream.written[0]?.start?.agentRef).toBeUndefined();
+
+    stream.emitData({
+      sessionStarted: {
+        sessionId: "sess-bundle-1",
+        agentVersionId: "ver-bundle",
+        modelProvider: "openai",
+        modelName: "gpt-4o",
+        history: [],
+        maxTokensPerRun: 0,
+        maxWallClockSeconds: 0,
+        sessionStartedAtUnixMs: 1,
+        sessionEndedAtUnixMs: 0,
+      },
+    });
+    stream.emitData({
+      completed: {
+        stopReason: "end_turn",
+        output: jsonBytes({ status: "approved" }),
+        sessionEndedAtUnixMs: 2,
+      },
+    });
+    stream.emitEnd();
+
+    await expect(runPromise).resolves.toEqual({
+      sessionId: "sess-bundle-1",
+      agentVersionId: "ver-bundle",
+      output: { status: "approved" },
+      stopReason: "end_turn",
+      stats: undefined,
+    });
+    expect(stream.end).toHaveBeenCalled();
+  });
+
+  it("bundle().run({ wait: false }) uses unary RunSession with bundleRef", async () => {
+    const phrony = new Phrony();
+    const runSession = vi.fn(async (req: RunSessionRequest) => {
+      expect(req.bundleRef).toEqual({
+        namespace: "demo",
+        name: "payment-desk",
+        version: "sha256:abc123",
+      });
+      expect(req.agentRef).toBeUndefined();
+      return {
+        sessionId: "sess-bundle-bg",
+        agentVersionId: "ver-bundle",
+        status: "running",
+      };
+    });
+    vi.spyOn(phrony, "ensureClient").mockResolvedValue(
+      mockRuntimeClient({ runSession }),
+    );
+
+    const result = await phrony.bundle("demo/payment-desk").run({
+      wait: false,
+      version: "sha256:abc123",
+      input: { amount: 500 },
+    });
+
+    expect(result).toEqual({
+      sessionId: "sess-bundle-bg",
+      agentVersionId: "ver-bundle",
+      status: "running",
+    });
+    expect(runSession).toHaveBeenCalledOnce();
+  });
+
   it("agent().runInteractive() returns an open interactive session", async () => {
     const stream = createMockInteractiveStream();
     const phrony = new Phrony();

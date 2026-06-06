@@ -39,6 +39,7 @@ export class InteractiveSession {
   start(options: InteractiveSessionStartOptions): void {
     const start: RunSessionInteractiveStart = {
       agentRef: options.agentRef,
+      bundleRef: options.bundleRef,
       input: jsonBytes(options.input),
       sessionId: "",
       resolvedSecrets: resolvedSecretsMap(options.resolvedSecrets ?? {}),

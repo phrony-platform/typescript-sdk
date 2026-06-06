@@ -1,8 +1,13 @@
 import type { ChannelCredentials } from "@grpc/grpc-js";
 import { parseAgentRef } from "./agent-ref.js";
+import { parseBundleRef } from "./bundle-ref.js";
 import { jsonBytes, resolvedSecretsMap } from "./client/json-bytes.js";
 import { RuntimeClient } from "./client/runtime-client.js";
-import type { AgentRef, InteractiveSessionStats } from "./gen/phrony/runtime/v1/runtime.js";
+import type {
+  AgentRef,
+  BundleRef,
+  InteractiveSessionStats,
+} from "./gen/phrony/runtime/v1/runtime.js";
 import { InteractiveSession } from "./session/interactive-session.js";
 import type { InteractiveEvent } from "./session/types.js";
 
@@ -18,8 +23,9 @@ export type AgentRunOptions = {
   /** Resolved secret values keyed by manifest secret name (raw strings, not JSON). */
   resolvedSecrets?: Record<string, string>;
   /**
-   * Agent version (alternative to `namespace/name@version` on {@link Phrony.agent}).
-   * When set, overrides the version from the agent reference string.
+   * Agent or bundle version (alternative to `namespace/name@version` on
+   * {@link Phrony.agent} / {@link Phrony.bundle}).
+   * When set, overrides the version from the reference string.
    */
   version?: string;
   /**
@@ -82,6 +88,14 @@ export class Phrony {
     return new PhronyAgent(this, parseAgentRef(ref));
   }
 
+  /**
+   * Return a handle for `namespace/name` or `namespace/name@version`.
+   * A bare name without a slash is rejected; use `default/my-bundle` form.
+   */
+  bundle(ref: string): PhronyBundle {
+    return new PhronyBundle(this, parseBundleRef(ref));
+  }
+
   /** Underlying runtime client (connects lazily on first use). */
   async runtimeClient(): Promise<RuntimeClient> {
     return this.ensureClient();
@@ -126,7 +140,7 @@ export class PhronyAgent {
       };
     }
 
-    return runToCompletion(client, agentRef, options);
+    return runToCompletion(client, { agentRef }, options);
   }
 
   /**
@@ -148,17 +162,79 @@ export class PhronyAgent {
   }
 }
 
+/** Bound bundle reference with {@link run} and {@link runInteractive} helpers. */
+export class PhronyBundle {
+  constructor(
+    private readonly phrony: Phrony,
+    readonly ref: BundleRef,
+  ) {}
+
+  /**
+   * Start a session for this bundle. By default waits for completion and returns
+   * parsed output. Set `wait: false` to fire-and-forget via unary `RunSession`.
+   */
+  async run(options: AgentRunOptions = {}): Promise<AgentRunResult> {
+    const bundleRef = applyVersionOverride(this.ref, options.version);
+    const client = await this.phrony.ensureClient();
+
+    if (options.wait === false) {
+      const response = await client.runSession({
+        bundleRef,
+        input: encodeInput(options.input),
+        resolvedSecrets: resolvedSecretsMap(options.resolvedSecrets ?? {}),
+      });
+      return {
+        sessionId: response.sessionId,
+        agentVersionId: response.agentVersionId,
+        status: response.status,
+      };
+    }
+
+    return runToCompletion(client, { bundleRef }, options);
+  }
+
+  /**
+   * Open a bidirectional interactive stream for this bundle without waiting for
+   * completion. The caller consumes {@link InteractiveSession.events} and must
+   * {@link InteractiveSession.close} when finished.
+   */
+  async runInteractive(
+    options: Pick<AgentRunOptions, "input" | "resolvedSecrets" | "version"> = {},
+  ): Promise<InteractiveSession> {
+    const client = await this.phrony.ensureClient();
+    const session = client.runSessionInteractive();
+    session.start({
+      bundleRef: applyVersionOverride(this.ref, options.version),
+      input: options.input ?? {},
+      resolvedSecrets: options.resolvedSecrets,
+    });
+    return session;
+  }
+}
+
+type SessionTarget = { agentRef?: AgentRef; bundleRef?: BundleRef };
+
 async function runToCompletion(
   client: RuntimeClient,
-  agentRef: AgentRef,
+  target: SessionTarget,
   options: AgentRunOptions,
 ): Promise<AgentRunResult> {
   const session = client.runSessionInteractive();
-  session.start({
-    agentRef,
-    input: options.input ?? {},
-    resolvedSecrets: options.resolvedSecrets,
-  });
+  const startInput = options.input ?? {};
+  const startSecrets = options.resolvedSecrets;
+  if (target.agentRef !== undefined) {
+    session.start({
+      agentRef: target.agentRef,
+      input: startInput,
+      resolvedSecrets: startSecrets,
+    });
+  } else {
+    session.start({
+      bundleRef: target.bundleRef!,
+      input: startInput,
+      resolvedSecrets: startSecrets,
+    });
+  }
 
   let sessionId = "";
   let agentVersionId: string | undefined;
@@ -202,7 +278,7 @@ async function runToCompletion(
   }
 }
 
-function applyVersionOverride(ref: AgentRef, version?: string): AgentRef {
+function applyVersionOverride<T extends { version: string }>(ref: T, version?: string): T {
   if (version === undefined) {
     return ref;
   }
