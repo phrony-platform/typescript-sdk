@@ -1,6 +1,6 @@
 # @phrony/sdk
 
-TypeScript client for the [Phrony runtime](https://github.com/phrony-ai/runtime) over gRPC. Use it to run agents, open interactive sessions, and register tool workers.
+TypeScript client for the [Phrony runtime](https://github.com/phrony-platform/runtime) over gRPC. Use it to run agents, open interactive sessions, and register tool workers.
 
 This package targets **Node.js 18+** and speaks the runtime API defined in `runtime/proto/phrony/runtime/v1/runtime.proto`. It is not the cloud HTTP control-plane client.
 
@@ -18,7 +18,7 @@ By default the SDK dials `127.0.0.1:7777`. Override with the environment variabl
 export PHRONY_RUNTIME_ADDR=127.0.0.1:7777
 ```
 
-Start the runtime locally (see the [runtime](https://github.com/phrony-ai/runtime) repo) before calling the SDK.
+Start the runtime locally (see the [runtime](https://github.com/phrony-platform/runtime) repo) before calling the SDK.
 
 ## Quick start
 
