@@ -20,6 +20,7 @@ import {
   type ServiceError,
   type UntypedServiceImplementation,
 } from "@grpc/grpc-js";
+import { Value } from "../../../google/protobuf/struct";
 
 export const protobufPackage = "phrony.runtime.v1";
 
@@ -280,6 +281,8 @@ export interface RunSessionInteractiveToolCall {
   childSessionId: string;
   /** Display label for the delegation target (namespace.name@version or wire name). */
   delegationTarget: string;
+  /** Model-facing tool name when it differs from tool (dispatch ref). */
+  wireName: string;
 }
 
 export interface RunSessionInteractiveToolResult {
@@ -620,6 +623,12 @@ export interface SessionSummary {
   kind: string;
   /** Set when the session originated from a bundle run; empty otherwise. */
   bundleVersionId: string;
+  /** Agent that executed this session (namespace/name@version). */
+  agentRef?:
+    | AgentRef
+    | undefined;
+  /** Bundle that started this session; set only for bundle-originated root sessions. */
+  bundleRef?: BundleRef | undefined;
 }
 
 export interface ListSessionsResponse {
@@ -657,23 +666,33 @@ export interface SessionAgentContext {
   maxWallClockSeconds: number;
 }
 
+/** Inspect-only event projection with readable JSON payload. */
 export interface SessionEventEntry {
   id: number;
   type: string;
-  /** full JSON as stored (protojson for wire-backed events) */
-  payload: Buffer;
+  payload?:
+    | any
+    | undefined;
   /** RFC3339 */
   createdAt: string;
+  seq: number;
+  tsUnixMs: number;
+  sessionId: string;
+  turn: number;
+  callId: string;
+  childSessionId: string;
+  actor: string;
 }
 
+/** Inspect-only tool invocation projection with readable JSON args/result. */
 export interface ToolInvocationEntry {
   callId: string;
   agentVersionId: string;
   turn: number;
   tool: string;
   version: string;
-  args: Buffer;
-  result: Buffer;
+  args?: any | undefined;
+  result?: any | undefined;
   status: string;
   workerIdentity: string;
   imageDigest: string;
@@ -698,8 +717,41 @@ export interface ToolInvocationEntry {
 }
 
 /**
+ * Inspect-only approval projection with readable JSON args/policy_runtime.
+ * Live approval RPCs keep Approval with bytes fields.
+ */
+export interface InspectApproval {
+  id: string;
+  sessionId: string;
+  callId: string;
+  status: string;
+  route: string;
+  reason: string;
+  tool: string;
+  version: string;
+  args?: any | undefined;
+  authorityRef: string;
+  policyName: string;
+  policyRuntime?: any | undefined;
+  approvalsRequired: number;
+  approvalsReceived: number;
+  comprehensionRequired: boolean;
+  onReject: string;
+  onModify: string;
+  /** RFC3339; empty when no timeout is configured. */
+  expiresAt: string;
+  /** RFC3339 */
+  createdAt: string;
+  /** RFC3339 */
+  decidedAt: string;
+  decidedBy: string;
+  comment: string;
+  votes: ApprovalVote[];
+}
+
+/**
  * Server-built unified chronological view merging events, invocation
- * milestones, and approvals. Clients that want one timeline use this.
+ * milestones, and approvals across the inspected root and descendants.
  */
 export interface InspectTimelineEntry {
   /** RFC3339 */
@@ -714,10 +766,14 @@ export interface InspectTimelineEntry {
   summary: string;
   event?: SessionEventEntry | undefined;
   invocation?: ToolInvocationEntry | undefined;
-  approval?: Approval | undefined;
+  approval?: InspectApproval | undefined;
+  sessionId: string;
+  depth: number;
+  seq: number;
+  tsUnixMs: number;
 }
 
-/** Recursive tree node: one session and its delegated children. */
+/** Recursive tree node: session header and delegated children (story is in response.timeline). */
 export interface SessionInspect {
   /** Identity & status */
   id: string;
@@ -728,33 +784,27 @@ export interface SessionInspect {
   bundleVersionId: string;
   createdAt: string;
   updatedAt: string;
-  /** Session I/O (full, not truncated) */
-  input: Buffer;
-  /** verbatim sessions.output JSON */
-  outputRaw: Buffer;
+  /** Session I/O summary (full input as nested JSON; output folded from events) */
+  input?: any | undefined;
   output?: SessionOutputInspect | undefined;
   error: string;
-  history: InteractiveConversationMessage[];
-  /** Agent/runtime context & governance */
+  /** Agent/runtime context & governance (readable nested JSON, including framework packs) */
   agent?: SessionAgentContext | undefined;
   descriptiveMetadata?:
-    | DescriptiveMetadataEvidence
+    | any
     | undefined;
   /** Wall-clock bounds (unix ms; derived from session timestamps + lifecycle events) */
   sessionStartedAtUnixMs: number;
   sessionEndedAtUnixMs: number;
-  /** Raw data sources */
-  events: SessionEventEntry[];
-  invocations: ToolInvocationEntry[];
-  /** reuse existing Approval message + votes */
-  approvals: Approval[];
-  /** Unified timeline (events + invocation milestones + approvals, sorted) */
-  timeline: InspectTimelineEntry[];
   children: SessionInspect[];
 }
 
 export interface InspectSessionResponse {
-  session?: SessionInspect | undefined;
+  session?:
+    | SessionInspect
+    | undefined;
+  /** Single chronological narrative for the inspected root and descendants. */
+  timeline: InspectTimelineEntry[];
 }
 
 export interface ApprovalVote {
@@ -3822,6 +3872,7 @@ function createBaseRunSessionInteractiveToolCall(): RunSessionInteractiveToolCal
     agentDelegation: false,
     childSessionId: "",
     delegationTarget: "",
+    wireName: "",
   };
 }
 
@@ -3847,6 +3898,9 @@ export const RunSessionInteractiveToolCall: MessageFns<RunSessionInteractiveTool
     }
     if (message.delegationTarget !== "") {
       writer.uint32(58).string(message.delegationTarget);
+    }
+    if (message.wireName !== "") {
+      writer.uint32(66).string(message.wireName);
     }
     return writer;
   },
@@ -3914,6 +3968,14 @@ export const RunSessionInteractiveToolCall: MessageFns<RunSessionInteractiveTool
           message.delegationTarget = reader.string();
           continue;
         }
+        case 8: {
+          if (tag !== 66) {
+            break;
+          }
+
+          message.wireName = reader.string();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -3948,6 +4010,11 @@ export const RunSessionInteractiveToolCall: MessageFns<RunSessionInteractiveTool
         : isSet(object.delegation_target)
         ? globalThis.String(object.delegation_target)
         : "",
+      wireName: isSet(object.wireName)
+        ? globalThis.String(object.wireName)
+        : isSet(object.wire_name)
+        ? globalThis.String(object.wire_name)
+        : "",
     };
   },
 
@@ -3974,6 +4041,9 @@ export const RunSessionInteractiveToolCall: MessageFns<RunSessionInteractiveTool
     if (message.delegationTarget !== "") {
       obj.delegationTarget = message.delegationTarget;
     }
+    if (message.wireName !== "") {
+      obj.wireName = message.wireName;
+    }
     return obj;
   },
 
@@ -3991,6 +4061,7 @@ export const RunSessionInteractiveToolCall: MessageFns<RunSessionInteractiveTool
     message.agentDelegation = object.agentDelegation ?? false;
     message.childSessionId = object.childSessionId ?? "";
     message.delegationTarget = object.delegationTarget ?? "";
+    message.wireName = object.wireName ?? "";
     return message;
   },
 };
@@ -8657,7 +8728,17 @@ export const ListSessionsRequest: MessageFns<ListSessionsRequest> = {
 };
 
 function createBaseSessionSummary(): SessionSummary {
-  return { id: "", agentVersionId: "", status: "", createdAt: "", updatedAt: "", kind: "", bundleVersionId: "" };
+  return {
+    id: "",
+    agentVersionId: "",
+    status: "",
+    createdAt: "",
+    updatedAt: "",
+    kind: "",
+    bundleVersionId: "",
+    agentRef: undefined,
+    bundleRef: undefined,
+  };
 }
 
 export const SessionSummary: MessageFns<SessionSummary> = {
@@ -8682,6 +8763,12 @@ export const SessionSummary: MessageFns<SessionSummary> = {
     }
     if (message.bundleVersionId !== "") {
       writer.uint32(58).string(message.bundleVersionId);
+    }
+    if (message.agentRef !== undefined) {
+      AgentRef.encode(message.agentRef, writer.uint32(66).fork()).join();
+    }
+    if (message.bundleRef !== undefined) {
+      BundleRef.encode(message.bundleRef, writer.uint32(74).fork()).join();
     }
     return writer;
   },
@@ -8749,6 +8836,22 @@ export const SessionSummary: MessageFns<SessionSummary> = {
           message.bundleVersionId = reader.string();
           continue;
         }
+        case 8: {
+          if (tag !== 66) {
+            break;
+          }
+
+          message.agentRef = AgentRef.decode(reader, reader.uint32());
+          continue;
+        }
+        case 9: {
+          if (tag !== 74) {
+            break;
+          }
+
+          message.bundleRef = BundleRef.decode(reader, reader.uint32());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -8783,6 +8886,16 @@ export const SessionSummary: MessageFns<SessionSummary> = {
         : isSet(object.bundle_version_id)
         ? globalThis.String(object.bundle_version_id)
         : "",
+      agentRef: isSet(object.agentRef)
+        ? AgentRef.fromJSON(object.agentRef)
+        : isSet(object.agent_ref)
+        ? AgentRef.fromJSON(object.agent_ref)
+        : undefined,
+      bundleRef: isSet(object.bundleRef)
+        ? BundleRef.fromJSON(object.bundleRef)
+        : isSet(object.bundle_ref)
+        ? BundleRef.fromJSON(object.bundle_ref)
+        : undefined,
     };
   },
 
@@ -8809,6 +8922,12 @@ export const SessionSummary: MessageFns<SessionSummary> = {
     if (message.bundleVersionId !== "") {
       obj.bundleVersionId = message.bundleVersionId;
     }
+    if (message.agentRef !== undefined) {
+      obj.agentRef = AgentRef.toJSON(message.agentRef);
+    }
+    if (message.bundleRef !== undefined) {
+      obj.bundleRef = BundleRef.toJSON(message.bundleRef);
+    }
     return obj;
   },
 
@@ -8824,6 +8943,12 @@ export const SessionSummary: MessageFns<SessionSummary> = {
     message.updatedAt = object.updatedAt ?? "";
     message.kind = object.kind ?? "";
     message.bundleVersionId = object.bundleVersionId ?? "";
+    message.agentRef = (object.agentRef !== undefined && object.agentRef !== null)
+      ? AgentRef.fromPartial(object.agentRef)
+      : undefined;
+    message.bundleRef = (object.bundleRef !== undefined && object.bundleRef !== null)
+      ? BundleRef.fromPartial(object.bundleRef)
+      : undefined;
     return message;
   },
 };
@@ -9383,7 +9508,19 @@ export const SessionAgentContext: MessageFns<SessionAgentContext> = {
 };
 
 function createBaseSessionEventEntry(): SessionEventEntry {
-  return { id: 0, type: "", payload: Buffer.alloc(0), createdAt: "" };
+  return {
+    id: 0,
+    type: "",
+    payload: undefined,
+    createdAt: "",
+    seq: 0,
+    tsUnixMs: 0,
+    sessionId: "",
+    turn: 0,
+    callId: "",
+    childSessionId: "",
+    actor: "",
+  };
 }
 
 export const SessionEventEntry: MessageFns<SessionEventEntry> = {
@@ -9394,11 +9531,32 @@ export const SessionEventEntry: MessageFns<SessionEventEntry> = {
     if (message.type !== "") {
       writer.uint32(18).string(message.type);
     }
-    if (message.payload.length !== 0) {
-      writer.uint32(26).bytes(message.payload);
+    if (message.payload !== undefined) {
+      Value.encode(Value.wrap(message.payload), writer.uint32(26).fork()).join();
     }
     if (message.createdAt !== "") {
       writer.uint32(34).string(message.createdAt);
+    }
+    if (message.seq !== 0) {
+      writer.uint32(40).int32(message.seq);
+    }
+    if (message.tsUnixMs !== 0) {
+      writer.uint32(48).int64(message.tsUnixMs);
+    }
+    if (message.sessionId !== "") {
+      writer.uint32(58).string(message.sessionId);
+    }
+    if (message.turn !== 0) {
+      writer.uint32(64).int32(message.turn);
+    }
+    if (message.callId !== "") {
+      writer.uint32(74).string(message.callId);
+    }
+    if (message.childSessionId !== "") {
+      writer.uint32(82).string(message.childSessionId);
+    }
+    if (message.actor !== "") {
+      writer.uint32(90).string(message.actor);
     }
     return writer;
   },
@@ -9431,7 +9589,7 @@ export const SessionEventEntry: MessageFns<SessionEventEntry> = {
             break;
           }
 
-          message.payload = Buffer.from(reader.bytes());
+          message.payload = Value.unwrap(Value.decode(reader, reader.uint32()));
           continue;
         }
         case 4: {
@@ -9440,6 +9598,62 @@ export const SessionEventEntry: MessageFns<SessionEventEntry> = {
           }
 
           message.createdAt = reader.string();
+          continue;
+        }
+        case 5: {
+          if (tag !== 40) {
+            break;
+          }
+
+          message.seq = reader.int32();
+          continue;
+        }
+        case 6: {
+          if (tag !== 48) {
+            break;
+          }
+
+          message.tsUnixMs = longToNumber(reader.int64());
+          continue;
+        }
+        case 7: {
+          if (tag !== 58) {
+            break;
+          }
+
+          message.sessionId = reader.string();
+          continue;
+        }
+        case 8: {
+          if (tag !== 64) {
+            break;
+          }
+
+          message.turn = reader.int32();
+          continue;
+        }
+        case 9: {
+          if (tag !== 74) {
+            break;
+          }
+
+          message.callId = reader.string();
+          continue;
+        }
+        case 10: {
+          if (tag !== 82) {
+            break;
+          }
+
+          message.childSessionId = reader.string();
+          continue;
+        }
+        case 11: {
+          if (tag !== 90) {
+            break;
+          }
+
+          message.actor = reader.string();
           continue;
         }
       }
@@ -9455,12 +9669,35 @@ export const SessionEventEntry: MessageFns<SessionEventEntry> = {
     return {
       id: isSet(object.id) ? globalThis.Number(object.id) : 0,
       type: isSet(object.type) ? globalThis.String(object.type) : "",
-      payload: isSet(object.payload) ? Buffer.from(bytesFromBase64(object.payload)) : Buffer.alloc(0),
+      payload: isSet(object?.payload) ? object.payload : undefined,
       createdAt: isSet(object.createdAt)
         ? globalThis.String(object.createdAt)
         : isSet(object.created_at)
         ? globalThis.String(object.created_at)
         : "",
+      seq: isSet(object.seq) ? globalThis.Number(object.seq) : 0,
+      tsUnixMs: isSet(object.tsUnixMs)
+        ? globalThis.Number(object.tsUnixMs)
+        : isSet(object.ts_unix_ms)
+        ? globalThis.Number(object.ts_unix_ms)
+        : 0,
+      sessionId: isSet(object.sessionId)
+        ? globalThis.String(object.sessionId)
+        : isSet(object.session_id)
+        ? globalThis.String(object.session_id)
+        : "",
+      turn: isSet(object.turn) ? globalThis.Number(object.turn) : 0,
+      callId: isSet(object.callId)
+        ? globalThis.String(object.callId)
+        : isSet(object.call_id)
+        ? globalThis.String(object.call_id)
+        : "",
+      childSessionId: isSet(object.childSessionId)
+        ? globalThis.String(object.childSessionId)
+        : isSet(object.child_session_id)
+        ? globalThis.String(object.child_session_id)
+        : "",
+      actor: isSet(object.actor) ? globalThis.String(object.actor) : "",
     };
   },
 
@@ -9472,11 +9709,32 @@ export const SessionEventEntry: MessageFns<SessionEventEntry> = {
     if (message.type !== "") {
       obj.type = message.type;
     }
-    if (message.payload.length !== 0) {
-      obj.payload = base64FromBytes(message.payload);
+    if (message.payload !== undefined) {
+      obj.payload = message.payload;
     }
     if (message.createdAt !== "") {
       obj.createdAt = message.createdAt;
+    }
+    if (message.seq !== 0) {
+      obj.seq = Math.round(message.seq);
+    }
+    if (message.tsUnixMs !== 0) {
+      obj.tsUnixMs = Math.round(message.tsUnixMs);
+    }
+    if (message.sessionId !== "") {
+      obj.sessionId = message.sessionId;
+    }
+    if (message.turn !== 0) {
+      obj.turn = Math.round(message.turn);
+    }
+    if (message.callId !== "") {
+      obj.callId = message.callId;
+    }
+    if (message.childSessionId !== "") {
+      obj.childSessionId = message.childSessionId;
+    }
+    if (message.actor !== "") {
+      obj.actor = message.actor;
     }
     return obj;
   },
@@ -9488,8 +9746,15 @@ export const SessionEventEntry: MessageFns<SessionEventEntry> = {
     const message = createBaseSessionEventEntry();
     message.id = object.id ?? 0;
     message.type = object.type ?? "";
-    message.payload = object.payload ?? Buffer.alloc(0);
+    message.payload = object.payload ?? undefined;
     message.createdAt = object.createdAt ?? "";
+    message.seq = object.seq ?? 0;
+    message.tsUnixMs = object.tsUnixMs ?? 0;
+    message.sessionId = object.sessionId ?? "";
+    message.turn = object.turn ?? 0;
+    message.callId = object.callId ?? "";
+    message.childSessionId = object.childSessionId ?? "";
+    message.actor = object.actor ?? "";
     return message;
   },
 };
@@ -9501,8 +9766,8 @@ function createBaseToolInvocationEntry(): ToolInvocationEntry {
     turn: 0,
     tool: "",
     version: "",
-    args: Buffer.alloc(0),
-    result: Buffer.alloc(0),
+    args: undefined,
+    result: undefined,
     status: "",
     workerIdentity: "",
     imageDigest: "",
@@ -9539,11 +9804,11 @@ export const ToolInvocationEntry: MessageFns<ToolInvocationEntry> = {
     if (message.version !== "") {
       writer.uint32(42).string(message.version);
     }
-    if (message.args.length !== 0) {
-      writer.uint32(50).bytes(message.args);
+    if (message.args !== undefined) {
+      Value.encode(Value.wrap(message.args), writer.uint32(50).fork()).join();
     }
-    if (message.result.length !== 0) {
-      writer.uint32(58).bytes(message.result);
+    if (message.result !== undefined) {
+      Value.encode(Value.wrap(message.result), writer.uint32(58).fork()).join();
     }
     if (message.status !== "") {
       writer.uint32(66).string(message.status);
@@ -9648,7 +9913,7 @@ export const ToolInvocationEntry: MessageFns<ToolInvocationEntry> = {
             break;
           }
 
-          message.args = Buffer.from(reader.bytes());
+          message.args = Value.unwrap(Value.decode(reader, reader.uint32()));
           continue;
         }
         case 7: {
@@ -9656,7 +9921,7 @@ export const ToolInvocationEntry: MessageFns<ToolInvocationEntry> = {
             break;
           }
 
-          message.result = Buffer.from(reader.bytes());
+          message.result = Value.unwrap(Value.decode(reader, reader.uint32()));
           continue;
         }
         case 8: {
@@ -9811,8 +10076,8 @@ export const ToolInvocationEntry: MessageFns<ToolInvocationEntry> = {
       turn: isSet(object.turn) ? globalThis.Number(object.turn) : 0,
       tool: isSet(object.tool) ? globalThis.String(object.tool) : "",
       version: isSet(object.version) ? globalThis.String(object.version) : "",
-      args: isSet(object.args) ? Buffer.from(bytesFromBase64(object.args)) : Buffer.alloc(0),
-      result: isSet(object.result) ? Buffer.from(bytesFromBase64(object.result)) : Buffer.alloc(0),
+      args: isSet(object?.args) ? object.args : undefined,
+      result: isSet(object?.result) ? object.result : undefined,
       status: isSet(object.status) ? globalThis.String(object.status) : "",
       workerIdentity: isSet(object.workerIdentity)
         ? globalThis.String(object.workerIdentity)
@@ -9901,11 +10166,11 @@ export const ToolInvocationEntry: MessageFns<ToolInvocationEntry> = {
     if (message.version !== "") {
       obj.version = message.version;
     }
-    if (message.args.length !== 0) {
-      obj.args = base64FromBytes(message.args);
+    if (message.args !== undefined) {
+      obj.args = message.args;
     }
-    if (message.result.length !== 0) {
-      obj.result = base64FromBytes(message.result);
+    if (message.result !== undefined) {
+      obj.result = message.result;
     }
     if (message.status !== "") {
       obj.status = message.status;
@@ -9968,8 +10233,8 @@ export const ToolInvocationEntry: MessageFns<ToolInvocationEntry> = {
     message.turn = object.turn ?? 0;
     message.tool = object.tool ?? "";
     message.version = object.version ?? "";
-    message.args = object.args ?? Buffer.alloc(0);
-    message.result = object.result ?? Buffer.alloc(0);
+    message.args = object.args ?? undefined;
+    message.result = object.result ?? undefined;
     message.status = object.status ?? "";
     message.workerIdentity = object.workerIdentity ?? "";
     message.imageDigest = object.imageDigest ?? "";
@@ -9992,6 +10257,500 @@ export const ToolInvocationEntry: MessageFns<ToolInvocationEntry> = {
   },
 };
 
+function createBaseInspectApproval(): InspectApproval {
+  return {
+    id: "",
+    sessionId: "",
+    callId: "",
+    status: "",
+    route: "",
+    reason: "",
+    tool: "",
+    version: "",
+    args: undefined,
+    authorityRef: "",
+    policyName: "",
+    policyRuntime: undefined,
+    approvalsRequired: 0,
+    approvalsReceived: 0,
+    comprehensionRequired: false,
+    onReject: "",
+    onModify: "",
+    expiresAt: "",
+    createdAt: "",
+    decidedAt: "",
+    decidedBy: "",
+    comment: "",
+    votes: [],
+  };
+}
+
+export const InspectApproval: MessageFns<InspectApproval> = {
+  encode(message: InspectApproval, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.id !== "") {
+      writer.uint32(10).string(message.id);
+    }
+    if (message.sessionId !== "") {
+      writer.uint32(18).string(message.sessionId);
+    }
+    if (message.callId !== "") {
+      writer.uint32(26).string(message.callId);
+    }
+    if (message.status !== "") {
+      writer.uint32(34).string(message.status);
+    }
+    if (message.route !== "") {
+      writer.uint32(42).string(message.route);
+    }
+    if (message.reason !== "") {
+      writer.uint32(50).string(message.reason);
+    }
+    if (message.tool !== "") {
+      writer.uint32(58).string(message.tool);
+    }
+    if (message.version !== "") {
+      writer.uint32(66).string(message.version);
+    }
+    if (message.args !== undefined) {
+      Value.encode(Value.wrap(message.args), writer.uint32(74).fork()).join();
+    }
+    if (message.authorityRef !== "") {
+      writer.uint32(82).string(message.authorityRef);
+    }
+    if (message.policyName !== "") {
+      writer.uint32(90).string(message.policyName);
+    }
+    if (message.policyRuntime !== undefined) {
+      Value.encode(Value.wrap(message.policyRuntime), writer.uint32(98).fork()).join();
+    }
+    if (message.approvalsRequired !== 0) {
+      writer.uint32(104).int32(message.approvalsRequired);
+    }
+    if (message.approvalsReceived !== 0) {
+      writer.uint32(112).int32(message.approvalsReceived);
+    }
+    if (message.comprehensionRequired !== false) {
+      writer.uint32(120).bool(message.comprehensionRequired);
+    }
+    if (message.onReject !== "") {
+      writer.uint32(130).string(message.onReject);
+    }
+    if (message.onModify !== "") {
+      writer.uint32(138).string(message.onModify);
+    }
+    if (message.expiresAt !== "") {
+      writer.uint32(146).string(message.expiresAt);
+    }
+    if (message.createdAt !== "") {
+      writer.uint32(154).string(message.createdAt);
+    }
+    if (message.decidedAt !== "") {
+      writer.uint32(162).string(message.decidedAt);
+    }
+    if (message.decidedBy !== "") {
+      writer.uint32(170).string(message.decidedBy);
+    }
+    if (message.comment !== "") {
+      writer.uint32(178).string(message.comment);
+    }
+    for (const v of message.votes) {
+      ApprovalVote.encode(v!, writer.uint32(186).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): InspectApproval {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseInspectApproval();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.id = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.sessionId = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.callId = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.status = reader.string();
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.route = reader.string();
+          continue;
+        }
+        case 6: {
+          if (tag !== 50) {
+            break;
+          }
+
+          message.reason = reader.string();
+          continue;
+        }
+        case 7: {
+          if (tag !== 58) {
+            break;
+          }
+
+          message.tool = reader.string();
+          continue;
+        }
+        case 8: {
+          if (tag !== 66) {
+            break;
+          }
+
+          message.version = reader.string();
+          continue;
+        }
+        case 9: {
+          if (tag !== 74) {
+            break;
+          }
+
+          message.args = Value.unwrap(Value.decode(reader, reader.uint32()));
+          continue;
+        }
+        case 10: {
+          if (tag !== 82) {
+            break;
+          }
+
+          message.authorityRef = reader.string();
+          continue;
+        }
+        case 11: {
+          if (tag !== 90) {
+            break;
+          }
+
+          message.policyName = reader.string();
+          continue;
+        }
+        case 12: {
+          if (tag !== 98) {
+            break;
+          }
+
+          message.policyRuntime = Value.unwrap(Value.decode(reader, reader.uint32()));
+          continue;
+        }
+        case 13: {
+          if (tag !== 104) {
+            break;
+          }
+
+          message.approvalsRequired = reader.int32();
+          continue;
+        }
+        case 14: {
+          if (tag !== 112) {
+            break;
+          }
+
+          message.approvalsReceived = reader.int32();
+          continue;
+        }
+        case 15: {
+          if (tag !== 120) {
+            break;
+          }
+
+          message.comprehensionRequired = reader.bool();
+          continue;
+        }
+        case 16: {
+          if (tag !== 130) {
+            break;
+          }
+
+          message.onReject = reader.string();
+          continue;
+        }
+        case 17: {
+          if (tag !== 138) {
+            break;
+          }
+
+          message.onModify = reader.string();
+          continue;
+        }
+        case 18: {
+          if (tag !== 146) {
+            break;
+          }
+
+          message.expiresAt = reader.string();
+          continue;
+        }
+        case 19: {
+          if (tag !== 154) {
+            break;
+          }
+
+          message.createdAt = reader.string();
+          continue;
+        }
+        case 20: {
+          if (tag !== 162) {
+            break;
+          }
+
+          message.decidedAt = reader.string();
+          continue;
+        }
+        case 21: {
+          if (tag !== 170) {
+            break;
+          }
+
+          message.decidedBy = reader.string();
+          continue;
+        }
+        case 22: {
+          if (tag !== 178) {
+            break;
+          }
+
+          message.comment = reader.string();
+          continue;
+        }
+        case 23: {
+          if (tag !== 186) {
+            break;
+          }
+
+          message.votes.push(ApprovalVote.decode(reader, reader.uint32()));
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): InspectApproval {
+    return {
+      id: isSet(object.id) ? globalThis.String(object.id) : "",
+      sessionId: isSet(object.sessionId)
+        ? globalThis.String(object.sessionId)
+        : isSet(object.session_id)
+        ? globalThis.String(object.session_id)
+        : "",
+      callId: isSet(object.callId)
+        ? globalThis.String(object.callId)
+        : isSet(object.call_id)
+        ? globalThis.String(object.call_id)
+        : "",
+      status: isSet(object.status) ? globalThis.String(object.status) : "",
+      route: isSet(object.route) ? globalThis.String(object.route) : "",
+      reason: isSet(object.reason) ? globalThis.String(object.reason) : "",
+      tool: isSet(object.tool) ? globalThis.String(object.tool) : "",
+      version: isSet(object.version) ? globalThis.String(object.version) : "",
+      args: isSet(object?.args) ? object.args : undefined,
+      authorityRef: isSet(object.authorityRef)
+        ? globalThis.String(object.authorityRef)
+        : isSet(object.authority_ref)
+        ? globalThis.String(object.authority_ref)
+        : "",
+      policyName: isSet(object.policyName)
+        ? globalThis.String(object.policyName)
+        : isSet(object.policy_name)
+        ? globalThis.String(object.policy_name)
+        : "",
+      policyRuntime: isSet(object?.policyRuntime)
+        ? object.policyRuntime
+        : isSet(object?.policy_runtime)
+        ? object.policy_runtime
+        : undefined,
+      approvalsRequired: isSet(object.approvalsRequired)
+        ? globalThis.Number(object.approvalsRequired)
+        : isSet(object.approvals_required)
+        ? globalThis.Number(object.approvals_required)
+        : 0,
+      approvalsReceived: isSet(object.approvalsReceived)
+        ? globalThis.Number(object.approvalsReceived)
+        : isSet(object.approvals_received)
+        ? globalThis.Number(object.approvals_received)
+        : 0,
+      comprehensionRequired: isSet(object.comprehensionRequired)
+        ? globalThis.Boolean(object.comprehensionRequired)
+        : isSet(object.comprehension_required)
+        ? globalThis.Boolean(object.comprehension_required)
+        : false,
+      onReject: isSet(object.onReject)
+        ? globalThis.String(object.onReject)
+        : isSet(object.on_reject)
+        ? globalThis.String(object.on_reject)
+        : "",
+      onModify: isSet(object.onModify)
+        ? globalThis.String(object.onModify)
+        : isSet(object.on_modify)
+        ? globalThis.String(object.on_modify)
+        : "",
+      expiresAt: isSet(object.expiresAt)
+        ? globalThis.String(object.expiresAt)
+        : isSet(object.expires_at)
+        ? globalThis.String(object.expires_at)
+        : "",
+      createdAt: isSet(object.createdAt)
+        ? globalThis.String(object.createdAt)
+        : isSet(object.created_at)
+        ? globalThis.String(object.created_at)
+        : "",
+      decidedAt: isSet(object.decidedAt)
+        ? globalThis.String(object.decidedAt)
+        : isSet(object.decided_at)
+        ? globalThis.String(object.decided_at)
+        : "",
+      decidedBy: isSet(object.decidedBy)
+        ? globalThis.String(object.decidedBy)
+        : isSet(object.decided_by)
+        ? globalThis.String(object.decided_by)
+        : "",
+      comment: isSet(object.comment) ? globalThis.String(object.comment) : "",
+      votes: globalThis.Array.isArray(object?.votes)
+        ? object.votes.map((e: any) => ApprovalVote.fromJSON(e))
+        : [],
+    };
+  },
+
+  toJSON(message: InspectApproval): unknown {
+    const obj: any = {};
+    if (message.id !== "") {
+      obj.id = message.id;
+    }
+    if (message.sessionId !== "") {
+      obj.sessionId = message.sessionId;
+    }
+    if (message.callId !== "") {
+      obj.callId = message.callId;
+    }
+    if (message.status !== "") {
+      obj.status = message.status;
+    }
+    if (message.route !== "") {
+      obj.route = message.route;
+    }
+    if (message.reason !== "") {
+      obj.reason = message.reason;
+    }
+    if (message.tool !== "") {
+      obj.tool = message.tool;
+    }
+    if (message.version !== "") {
+      obj.version = message.version;
+    }
+    if (message.args !== undefined) {
+      obj.args = message.args;
+    }
+    if (message.authorityRef !== "") {
+      obj.authorityRef = message.authorityRef;
+    }
+    if (message.policyName !== "") {
+      obj.policyName = message.policyName;
+    }
+    if (message.policyRuntime !== undefined) {
+      obj.policyRuntime = message.policyRuntime;
+    }
+    if (message.approvalsRequired !== 0) {
+      obj.approvalsRequired = Math.round(message.approvalsRequired);
+    }
+    if (message.approvalsReceived !== 0) {
+      obj.approvalsReceived = Math.round(message.approvalsReceived);
+    }
+    if (message.comprehensionRequired !== false) {
+      obj.comprehensionRequired = message.comprehensionRequired;
+    }
+    if (message.onReject !== "") {
+      obj.onReject = message.onReject;
+    }
+    if (message.onModify !== "") {
+      obj.onModify = message.onModify;
+    }
+    if (message.expiresAt !== "") {
+      obj.expiresAt = message.expiresAt;
+    }
+    if (message.createdAt !== "") {
+      obj.createdAt = message.createdAt;
+    }
+    if (message.decidedAt !== "") {
+      obj.decidedAt = message.decidedAt;
+    }
+    if (message.decidedBy !== "") {
+      obj.decidedBy = message.decidedBy;
+    }
+    if (message.comment !== "") {
+      obj.comment = message.comment;
+    }
+    if (message.votes?.length) {
+      obj.votes = message.votes.map((e) => ApprovalVote.toJSON(e));
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<InspectApproval>, I>>(base?: I): InspectApproval {
+    return InspectApproval.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<InspectApproval>, I>>(object: I): InspectApproval {
+    const message = createBaseInspectApproval();
+    message.id = object.id ?? "";
+    message.sessionId = object.sessionId ?? "";
+    message.callId = object.callId ?? "";
+    message.status = object.status ?? "";
+    message.route = object.route ?? "";
+    message.reason = object.reason ?? "";
+    message.tool = object.tool ?? "";
+    message.version = object.version ?? "";
+    message.args = object.args ?? undefined;
+    message.authorityRef = object.authorityRef ?? "";
+    message.policyName = object.policyName ?? "";
+    message.policyRuntime = object.policyRuntime ?? undefined;
+    message.approvalsRequired = object.approvalsRequired ?? 0;
+    message.approvalsReceived = object.approvalsReceived ?? 0;
+    message.comprehensionRequired = object.comprehensionRequired ?? false;
+    message.onReject = object.onReject ?? "";
+    message.onModify = object.onModify ?? "";
+    message.expiresAt = object.expiresAt ?? "";
+    message.createdAt = object.createdAt ?? "";
+    message.decidedAt = object.decidedAt ?? "";
+    message.decidedBy = object.decidedBy ?? "";
+    message.comment = object.comment ?? "";
+    message.votes = object.votes?.map((e) => ApprovalVote.fromPartial(e)) || [];
+    return message;
+  },
+};
+
 function createBaseInspectTimelineEntry(): InspectTimelineEntry {
   return {
     timestamp: "",
@@ -10002,6 +10761,10 @@ function createBaseInspectTimelineEntry(): InspectTimelineEntry {
     event: undefined,
     invocation: undefined,
     approval: undefined,
+    sessionId: "",
+    depth: 0,
+    seq: 0,
+    tsUnixMs: 0,
   };
 }
 
@@ -10029,7 +10792,19 @@ export const InspectTimelineEntry: MessageFns<InspectTimelineEntry> = {
       ToolInvocationEntry.encode(message.invocation, writer.uint32(90).fork()).join();
     }
     if (message.approval !== undefined) {
-      Approval.encode(message.approval, writer.uint32(98).fork()).join();
+      InspectApproval.encode(message.approval, writer.uint32(98).fork()).join();
+    }
+    if (message.sessionId !== "") {
+      writer.uint32(106).string(message.sessionId);
+    }
+    if (message.depth !== 0) {
+      writer.uint32(112).int32(message.depth);
+    }
+    if (message.seq !== 0) {
+      writer.uint32(120).int32(message.seq);
+    }
+    if (message.tsUnixMs !== 0) {
+      writer.uint32(128).int64(message.tsUnixMs);
     }
     return writer;
   },
@@ -10102,7 +10877,39 @@ export const InspectTimelineEntry: MessageFns<InspectTimelineEntry> = {
             break;
           }
 
-          message.approval = Approval.decode(reader, reader.uint32());
+          message.approval = InspectApproval.decode(reader, reader.uint32());
+          continue;
+        }
+        case 13: {
+          if (tag !== 106) {
+            break;
+          }
+
+          message.sessionId = reader.string();
+          continue;
+        }
+        case 14: {
+          if (tag !== 112) {
+            break;
+          }
+
+          message.depth = reader.int32();
+          continue;
+        }
+        case 15: {
+          if (tag !== 120) {
+            break;
+          }
+
+          message.seq = reader.int32();
+          continue;
+        }
+        case 16: {
+          if (tag !== 128) {
+            break;
+          }
+
+          message.tsUnixMs = longToNumber(reader.int64());
           continue;
         }
       }
@@ -10127,7 +10934,19 @@ export const InspectTimelineEntry: MessageFns<InspectTimelineEntry> = {
       summary: isSet(object.summary) ? globalThis.String(object.summary) : "",
       event: isSet(object.event) ? SessionEventEntry.fromJSON(object.event) : undefined,
       invocation: isSet(object.invocation) ? ToolInvocationEntry.fromJSON(object.invocation) : undefined,
-      approval: isSet(object.approval) ? Approval.fromJSON(object.approval) : undefined,
+      approval: isSet(object.approval) ? InspectApproval.fromJSON(object.approval) : undefined,
+      sessionId: isSet(object.sessionId)
+        ? globalThis.String(object.sessionId)
+        : isSet(object.session_id)
+        ? globalThis.String(object.session_id)
+        : "",
+      depth: isSet(object.depth) ? globalThis.Number(object.depth) : 0,
+      seq: isSet(object.seq) ? globalThis.Number(object.seq) : 0,
+      tsUnixMs: isSet(object.tsUnixMs)
+        ? globalThis.Number(object.tsUnixMs)
+        : isSet(object.ts_unix_ms)
+        ? globalThis.Number(object.ts_unix_ms)
+        : 0,
     };
   },
 
@@ -10155,7 +10974,19 @@ export const InspectTimelineEntry: MessageFns<InspectTimelineEntry> = {
       obj.invocation = ToolInvocationEntry.toJSON(message.invocation);
     }
     if (message.approval !== undefined) {
-      obj.approval = Approval.toJSON(message.approval);
+      obj.approval = InspectApproval.toJSON(message.approval);
+    }
+    if (message.sessionId !== "") {
+      obj.sessionId = message.sessionId;
+    }
+    if (message.depth !== 0) {
+      obj.depth = Math.round(message.depth);
+    }
+    if (message.seq !== 0) {
+      obj.seq = Math.round(message.seq);
+    }
+    if (message.tsUnixMs !== 0) {
+      obj.tsUnixMs = Math.round(message.tsUnixMs);
     }
     return obj;
   },
@@ -10177,8 +11008,12 @@ export const InspectTimelineEntry: MessageFns<InspectTimelineEntry> = {
       ? ToolInvocationEntry.fromPartial(object.invocation)
       : undefined;
     message.approval = (object.approval !== undefined && object.approval !== null)
-      ? Approval.fromPartial(object.approval)
+      ? InspectApproval.fromPartial(object.approval)
       : undefined;
+    message.sessionId = object.sessionId ?? "";
+    message.depth = object.depth ?? 0;
+    message.seq = object.seq ?? 0;
+    message.tsUnixMs = object.tsUnixMs ?? 0;
     return message;
   },
 };
@@ -10193,19 +11028,13 @@ function createBaseSessionInspect(): SessionInspect {
     bundleVersionId: "",
     createdAt: "",
     updatedAt: "",
-    input: Buffer.alloc(0),
-    outputRaw: Buffer.alloc(0),
+    input: undefined,
     output: undefined,
     error: "",
-    history: [],
     agent: undefined,
     descriptiveMetadata: undefined,
     sessionStartedAtUnixMs: 0,
     sessionEndedAtUnixMs: 0,
-    events: [],
-    invocations: [],
-    approvals: [],
-    timeline: [],
     children: [],
   };
 }
@@ -10236,11 +11065,8 @@ export const SessionInspect: MessageFns<SessionInspect> = {
     if (message.updatedAt !== "") {
       writer.uint32(66).string(message.updatedAt);
     }
-    if (message.input.length !== 0) {
-      writer.uint32(74).bytes(message.input);
-    }
-    if (message.outputRaw.length !== 0) {
-      writer.uint32(82).bytes(message.outputRaw);
+    if (message.input !== undefined) {
+      Value.encode(Value.wrap(message.input), writer.uint32(74).fork()).join();
     }
     if (message.output !== undefined) {
       SessionOutputInspect.encode(message.output, writer.uint32(90).fork()).join();
@@ -10248,32 +11074,17 @@ export const SessionInspect: MessageFns<SessionInspect> = {
     if (message.error !== "") {
       writer.uint32(98).string(message.error);
     }
-    for (const v of message.history) {
-      InteractiveConversationMessage.encode(v!, writer.uint32(106).fork()).join();
-    }
     if (message.agent !== undefined) {
       SessionAgentContext.encode(message.agent, writer.uint32(114).fork()).join();
     }
     if (message.descriptiveMetadata !== undefined) {
-      DescriptiveMetadataEvidence.encode(message.descriptiveMetadata, writer.uint32(122).fork()).join();
+      Value.encode(Value.wrap(message.descriptiveMetadata), writer.uint32(122).fork()).join();
     }
     if (message.sessionStartedAtUnixMs !== 0) {
       writer.uint32(128).int64(message.sessionStartedAtUnixMs);
     }
     if (message.sessionEndedAtUnixMs !== 0) {
       writer.uint32(136).int64(message.sessionEndedAtUnixMs);
-    }
-    for (const v of message.events) {
-      SessionEventEntry.encode(v!, writer.uint32(146).fork()).join();
-    }
-    for (const v of message.invocations) {
-      ToolInvocationEntry.encode(v!, writer.uint32(154).fork()).join();
-    }
-    for (const v of message.approvals) {
-      Approval.encode(v!, writer.uint32(162).fork()).join();
-    }
-    for (const v of message.timeline) {
-      InspectTimelineEntry.encode(v!, writer.uint32(170).fork()).join();
     }
     for (const v of message.children) {
       SessionInspect.encode(v!, writer.uint32(178).fork()).join();
@@ -10357,15 +11168,7 @@ export const SessionInspect: MessageFns<SessionInspect> = {
             break;
           }
 
-          message.input = Buffer.from(reader.bytes());
-          continue;
-        }
-        case 10: {
-          if (tag !== 82) {
-            break;
-          }
-
-          message.outputRaw = Buffer.from(reader.bytes());
+          message.input = Value.unwrap(Value.decode(reader, reader.uint32()));
           continue;
         }
         case 11: {
@@ -10384,14 +11187,6 @@ export const SessionInspect: MessageFns<SessionInspect> = {
           message.error = reader.string();
           continue;
         }
-        case 13: {
-          if (tag !== 106) {
-            break;
-          }
-
-          message.history.push(InteractiveConversationMessage.decode(reader, reader.uint32()));
-          continue;
-        }
         case 14: {
           if (tag !== 114) {
             break;
@@ -10405,7 +11200,7 @@ export const SessionInspect: MessageFns<SessionInspect> = {
             break;
           }
 
-          message.descriptiveMetadata = DescriptiveMetadataEvidence.decode(reader, reader.uint32());
+          message.descriptiveMetadata = Value.unwrap(Value.decode(reader, reader.uint32()));
           continue;
         }
         case 16: {
@@ -10422,38 +11217,6 @@ export const SessionInspect: MessageFns<SessionInspect> = {
           }
 
           message.sessionEndedAtUnixMs = longToNumber(reader.int64());
-          continue;
-        }
-        case 18: {
-          if (tag !== 146) {
-            break;
-          }
-
-          message.events.push(SessionEventEntry.decode(reader, reader.uint32()));
-          continue;
-        }
-        case 19: {
-          if (tag !== 154) {
-            break;
-          }
-
-          message.invocations.push(ToolInvocationEntry.decode(reader, reader.uint32()));
-          continue;
-        }
-        case 20: {
-          if (tag !== 162) {
-            break;
-          }
-
-          message.approvals.push(Approval.decode(reader, reader.uint32()));
-          continue;
-        }
-        case 21: {
-          if (tag !== 170) {
-            break;
-          }
-
-          message.timeline.push(InspectTimelineEntry.decode(reader, reader.uint32()));
           continue;
         }
         case 22: {
@@ -10503,22 +11266,14 @@ export const SessionInspect: MessageFns<SessionInspect> = {
         : isSet(object.updated_at)
         ? globalThis.String(object.updated_at)
         : "",
-      input: isSet(object.input) ? Buffer.from(bytesFromBase64(object.input)) : Buffer.alloc(0),
-      outputRaw: isSet(object.outputRaw)
-        ? Buffer.from(bytesFromBase64(object.outputRaw))
-        : isSet(object.output_raw)
-        ? Buffer.from(bytesFromBase64(object.output_raw))
-        : Buffer.alloc(0),
+      input: isSet(object?.input) ? object.input : undefined,
       output: isSet(object.output) ? SessionOutputInspect.fromJSON(object.output) : undefined,
       error: isSet(object.error) ? globalThis.String(object.error) : "",
-      history: globalThis.Array.isArray(object?.history)
-        ? object.history.map((e: any) => InteractiveConversationMessage.fromJSON(e))
-        : [],
       agent: isSet(object.agent) ? SessionAgentContext.fromJSON(object.agent) : undefined,
-      descriptiveMetadata: isSet(object.descriptiveMetadata)
-        ? DescriptiveMetadataEvidence.fromJSON(object.descriptiveMetadata)
-        : isSet(object.descriptive_metadata)
-        ? DescriptiveMetadataEvidence.fromJSON(object.descriptive_metadata)
+      descriptiveMetadata: isSet(object?.descriptiveMetadata)
+        ? object.descriptiveMetadata
+        : isSet(object?.descriptive_metadata)
+        ? object.descriptive_metadata
         : undefined,
       sessionStartedAtUnixMs: isSet(object.sessionStartedAtUnixMs)
         ? globalThis.Number(object.sessionStartedAtUnixMs)
@@ -10530,18 +11285,6 @@ export const SessionInspect: MessageFns<SessionInspect> = {
         : isSet(object.session_ended_at_unix_ms)
         ? globalThis.Number(object.session_ended_at_unix_ms)
         : 0,
-      events: globalThis.Array.isArray(object?.events)
-        ? object.events.map((e: any) => SessionEventEntry.fromJSON(e))
-        : [],
-      invocations: globalThis.Array.isArray(object?.invocations)
-        ? object.invocations.map((e: any) => ToolInvocationEntry.fromJSON(e))
-        : [],
-      approvals: globalThis.Array.isArray(object?.approvals)
-        ? object.approvals.map((e: any) => Approval.fromJSON(e))
-        : [],
-      timeline: globalThis.Array.isArray(object?.timeline)
-        ? object.timeline.map((e: any) => InspectTimelineEntry.fromJSON(e))
-        : [],
       children: globalThis.Array.isArray(object?.children)
         ? object.children.map((e: any) => SessionInspect.fromJSON(e))
         : [],
@@ -10574,11 +11317,8 @@ export const SessionInspect: MessageFns<SessionInspect> = {
     if (message.updatedAt !== "") {
       obj.updatedAt = message.updatedAt;
     }
-    if (message.input.length !== 0) {
-      obj.input = base64FromBytes(message.input);
-    }
-    if (message.outputRaw.length !== 0) {
-      obj.outputRaw = base64FromBytes(message.outputRaw);
+    if (message.input !== undefined) {
+      obj.input = message.input;
     }
     if (message.output !== undefined) {
       obj.output = SessionOutputInspect.toJSON(message.output);
@@ -10586,32 +11326,17 @@ export const SessionInspect: MessageFns<SessionInspect> = {
     if (message.error !== "") {
       obj.error = message.error;
     }
-    if (message.history?.length) {
-      obj.history = message.history.map((e) => InteractiveConversationMessage.toJSON(e));
-    }
     if (message.agent !== undefined) {
       obj.agent = SessionAgentContext.toJSON(message.agent);
     }
     if (message.descriptiveMetadata !== undefined) {
-      obj.descriptiveMetadata = DescriptiveMetadataEvidence.toJSON(message.descriptiveMetadata);
+      obj.descriptiveMetadata = message.descriptiveMetadata;
     }
     if (message.sessionStartedAtUnixMs !== 0) {
       obj.sessionStartedAtUnixMs = Math.round(message.sessionStartedAtUnixMs);
     }
     if (message.sessionEndedAtUnixMs !== 0) {
       obj.sessionEndedAtUnixMs = Math.round(message.sessionEndedAtUnixMs);
-    }
-    if (message.events?.length) {
-      obj.events = message.events.map((e) => SessionEventEntry.toJSON(e));
-    }
-    if (message.invocations?.length) {
-      obj.invocations = message.invocations.map((e) => ToolInvocationEntry.toJSON(e));
-    }
-    if (message.approvals?.length) {
-      obj.approvals = message.approvals.map((e) => Approval.toJSON(e));
-    }
-    if (message.timeline?.length) {
-      obj.timeline = message.timeline.map((e) => InspectTimelineEntry.toJSON(e));
     }
     if (message.children?.length) {
       obj.children = message.children.map((e) => SessionInspect.toJSON(e));
@@ -10632,38 +11357,33 @@ export const SessionInspect: MessageFns<SessionInspect> = {
     message.bundleVersionId = object.bundleVersionId ?? "";
     message.createdAt = object.createdAt ?? "";
     message.updatedAt = object.updatedAt ?? "";
-    message.input = object.input ?? Buffer.alloc(0);
-    message.outputRaw = object.outputRaw ?? Buffer.alloc(0);
+    message.input = object.input ?? undefined;
     message.output = (object.output !== undefined && object.output !== null)
       ? SessionOutputInspect.fromPartial(object.output)
       : undefined;
     message.error = object.error ?? "";
-    message.history = object.history?.map((e) => InteractiveConversationMessage.fromPartial(e)) || [];
     message.agent = (object.agent !== undefined && object.agent !== null)
       ? SessionAgentContext.fromPartial(object.agent)
       : undefined;
-    message.descriptiveMetadata = (object.descriptiveMetadata !== undefined && object.descriptiveMetadata !== null)
-      ? DescriptiveMetadataEvidence.fromPartial(object.descriptiveMetadata)
-      : undefined;
+    message.descriptiveMetadata = object.descriptiveMetadata ?? undefined;
     message.sessionStartedAtUnixMs = object.sessionStartedAtUnixMs ?? 0;
     message.sessionEndedAtUnixMs = object.sessionEndedAtUnixMs ?? 0;
-    message.events = object.events?.map((e) => SessionEventEntry.fromPartial(e)) || [];
-    message.invocations = object.invocations?.map((e) => ToolInvocationEntry.fromPartial(e)) || [];
-    message.approvals = object.approvals?.map((e) => Approval.fromPartial(e)) || [];
-    message.timeline = object.timeline?.map((e) => InspectTimelineEntry.fromPartial(e)) || [];
     message.children = object.children?.map((e) => SessionInspect.fromPartial(e)) || [];
     return message;
   },
 };
 
 function createBaseInspectSessionResponse(): InspectSessionResponse {
-  return { session: undefined };
+  return { session: undefined, timeline: [] };
 }
 
 export const InspectSessionResponse: MessageFns<InspectSessionResponse> = {
   encode(message: InspectSessionResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.session !== undefined) {
       SessionInspect.encode(message.session, writer.uint32(10).fork()).join();
+    }
+    for (const v of message.timeline) {
+      InspectTimelineEntry.encode(v!, writer.uint32(18).fork()).join();
     }
     return writer;
   },
@@ -10683,6 +11403,14 @@ export const InspectSessionResponse: MessageFns<InspectSessionResponse> = {
           message.session = SessionInspect.decode(reader, reader.uint32());
           continue;
         }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.timeline.push(InspectTimelineEntry.decode(reader, reader.uint32()));
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -10693,13 +11421,21 @@ export const InspectSessionResponse: MessageFns<InspectSessionResponse> = {
   },
 
   fromJSON(object: any): InspectSessionResponse {
-    return { session: isSet(object.session) ? SessionInspect.fromJSON(object.session) : undefined };
+    return {
+      session: isSet(object.session) ? SessionInspect.fromJSON(object.session) : undefined,
+      timeline: globalThis.Array.isArray(object?.timeline)
+        ? object.timeline.map((e: any) => InspectTimelineEntry.fromJSON(e))
+        : [],
+    };
   },
 
   toJSON(message: InspectSessionResponse): unknown {
     const obj: any = {};
     if (message.session !== undefined) {
       obj.session = SessionInspect.toJSON(message.session);
+    }
+    if (message.timeline?.length) {
+      obj.timeline = message.timeline.map((e) => InspectTimelineEntry.toJSON(e));
     }
     return obj;
   },
@@ -10712,6 +11448,7 @@ export const InspectSessionResponse: MessageFns<InspectSessionResponse> = {
     message.session = (object.session !== undefined && object.session !== null)
       ? SessionInspect.fromPartial(object.session)
       : undefined;
+    message.timeline = object.timeline?.map((e) => InspectTimelineEntry.fromPartial(e)) || [];
     return message;
   },
 };
