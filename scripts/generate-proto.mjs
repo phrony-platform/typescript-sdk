@@ -38,7 +38,7 @@ try {
     [
       `--plugin=protoc-gen-ts_proto=${plugin}`,
       `--ts_proto_out=${outDir}`,
-      "--ts_proto_opt=outputServices=grpc-js,env=node,esModuleInterop=true,useOptionals=messages",
+      "--ts_proto_opt=outputServices=grpc-js,env=node,esModuleInterop=true,useOptionals=messages,importSuffix=.js",
       "-I",
       protoRoot,
       ...protoFiles.map((file) => join(protoRoot, file)),

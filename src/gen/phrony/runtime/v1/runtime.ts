@@ -20,7 +20,7 @@ import {
   type ServiceError,
   type UntypedServiceImplementation,
 } from "@grpc/grpc-js";
-import { Value } from "../../../google/protobuf/struct";
+import { Value } from "../../../google/protobuf/struct.js";
 
 export const protobufPackage = "phrony.runtime.v1";
 

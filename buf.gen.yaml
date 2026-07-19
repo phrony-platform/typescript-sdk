@@ -10,3 +10,4 @@ plugins:
       - env=node
       - esModuleInterop=true
       - useOptionals=messages
+      - importSuffix=.js
