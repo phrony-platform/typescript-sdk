@@ -3,6 +3,6 @@ import { SDK_VERSION } from "./index.js";
 
 describe("SDK_VERSION", () => {
   it("is defined", () => {
-    expect(SDK_VERSION).toBe("0.0.0");
+    expect(SDK_VERSION).toBe("0.1.0");
   });
 });
